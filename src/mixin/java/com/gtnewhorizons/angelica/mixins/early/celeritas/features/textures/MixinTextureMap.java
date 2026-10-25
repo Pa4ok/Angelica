@@ -4,6 +4,7 @@ import com.gtnewhorizons.angelica.mixins.interfaces.TextureMetadataExtension;
 import com.gtnewhorizons.angelica.rendering.celeritas.SpriteExtension;
 import com.gtnewhorizons.angelica.rendering.celeritas.TextureMapExtension;
 import com.gtnewhorizons.angelica.textures.atlas.AtlasAssembler;
+import com.gtnewhorizons.angelica.textures.atlas.SpriteGrid;
 import com.google.common.collect.Lists;
 import com.gtnewhorizons.angelica.experimental.surround.Surround;
 import com.gtnewhorizons.angelica.utils.MipmapStrategies;
@@ -34,6 +35,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 
 /**
  * QuadTree for sprite UV lookup, plus per-sprite mipmap strategy assignment.
@@ -61,6 +63,8 @@ public class MixinTextureMap implements TextureMapExtension {
     private int celeritas$width;
     @Unique
     private int celeritas$height;
+    @Unique
+    private SpriteGrid<TextureAtlasSprite> celeritas$spriteGrid;
 
     @Inject(method = { "loadTexture", "loadTextureAtlas" }, at = @At("HEAD"))
     private void angelica$applyAtlasSettings(CallbackInfo ci) {
@@ -188,12 +192,17 @@ public class MixinTextureMap implements TextureMapExtension {
 
         final Rect2i treeRect = new Rect2i(0, 0, celeritas$width, celeritas$height);
         final int minSize = this.mapUploadedSprites.values().stream().mapToInt(sprite -> Math.max(sprite.getIconWidth(), sprite.getIconHeight())).min().orElse(0);
-        this.celeritas$quadTree = new QuadTree<>(treeRect, minSize, this.mapUploadedSprites.values(), sprite -> new Rect2i(sprite.getOriginX(), sprite.getOriginY(), sprite.getIconWidth(), sprite.getIconHeight()));
+        final Function<TextureAtlasSprite, Rect2i> bounds = sprite -> new Rect2i(sprite.getOriginX(), sprite.getOriginY(), sprite.getIconWidth(), sprite.getIconHeight());
+        this.celeritas$quadTree = new QuadTree<>(treeRect, minSize, this.mapUploadedSprites.values(), bounds);
+        this.celeritas$spriteGrid = SpriteGrid.build(celeritas$width, celeritas$height, this.mapUploadedSprites.values(), bounds, sprite -> ((SpriteExtension) sprite).angelica$getGutterWidth());
     }
 
     @Override
     public TextureAtlasSprite celeritas$findFromUV(float u, float v) {
+        final int x = Math.round(u * this.celeritas$width);
+        final int y = Math.round(v * this.celeritas$height);
+        if (celeritas$spriteGrid != null) return celeritas$spriteGrid.find(x, y);
         if (celeritas$quadTree == null) return null;
-        return this.celeritas$quadTree.find(Math.round(u * this.celeritas$width), Math.round(v * this.celeritas$height));
+        return this.celeritas$quadTree.find(x, y);
     }
 }
